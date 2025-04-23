@@ -1,0 +1,2 @@
+agency_id,agency_name,agency_url,agency_timezone
+1,Efe Trenes Chile,https://www.efe.cl/,GMT-4

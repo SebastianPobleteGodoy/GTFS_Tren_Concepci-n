@@ -1,0 +1,4 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+1,1,L1,Hualqui - Talcahuano,0
+2,1,L2,Concepcion - Coronel,0
+3,1,Corto Laja,Laja - Talcahuano,0

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Biotren – TripsLayer (deck.gl + Mapbox)</title>
+
+  <!-- Mapbox GL JS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
+
+  <!-- deck.gl core + GeoLayers + MapboxOverlay -->
+  <script src="https://unpkg.com/deck.gl@^9/dist.min.js"></script>
+  <script src="https://unpkg.com/@deck.gl/geo-layers@^9/dist.min.js"></script>
+  <script src="https://unpkg.com/@deck.gl/mapbox@^9/dist.min.js"></script>
+
+  <script src="https://unpkg.com/@deck.gl/layers@^9/dist.min.js"></script>
+  <style>
+    html,
+    body,
+    #map {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100vh;
+    }
+
+    #ui {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      font-family: system-ui, sans-serif;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    #ui button {
+      padding: 0.3rem 0.6rem;
+      border: none;
+      border-radius: 0.35rem;
+      cursor: pointer;
+    }
+
+    #play {
+      background: #2e7d32;
+      color: #fff;
+    }
+
+    #play:hover {
+      background: #1b5e20;
+    }
+
+    #legend {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      font-family: system-ui, sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    #legend div {
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.3rem;
+    }
+
+    #legend div:last-child {
+      margin-bottom: 0;
+    }
+
+    .legend-color {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 0.5rem;
+      border: 1px solid #333;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <div id="ui">
+    <button id="play">⏯ Pausar</button>
+    Tiempo: <span id="time">00:00:00</span>
+    <button id="both">Ambos</button>
+    <button id="out">Solo ida</button>
+    <button id="in">Solo vuelta</button>
+  </div>
+
+  <div id="legend">
+    <div><span class="legend-color" style="background: rgb(30,144,255)"></span> Ida</div>
+    <div><span class="legend-color" style="background: rgb(220,70,120)"></span> Vuelta</div>
+  </div>
+
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic2ViYXhvIiwiYSI6ImNtOWs0MTdjYzBqMDMya29hMmdpbXZ1ODUifQ.d3ibMQotK8OpkHkzaJfOOw';
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/dark-v10',
+      center: [-73.0610353, -36.8301581],
+      zoom: 12.25,
+      pitch: 55,
+      bearing: -20,
+      antialias: true
+    });
+
+    function formatTime(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+    }
+    Promise.all([
+      fetch('trips.json').then(r => r.json()),
+      fetch('lines.json').then(r => r.json())
+    ])
+      .then(([trips, linesGeojson]) => startVisualization(trips, linesGeojson))
+      .catch(err => alert('Error cargando datos: ' + err));
+
+      function startVisualization(trips, linesGeojson) {
+        const { TripsLayer, ScatterplotLayer, PathLayer, MapboxOverlay } = deck;
+
+        const staticLineLayers = linesGeojson.features.map((f, i) => {
+        return new PathLayer({
+          id: `static-${f.properties.route_id}`,
+          data: [f],
+          getPath:     d => d.geometry.coordinates,
+          getColor:    f.properties.color,
+          widthMinPixels: 5,
+          jointRounded:   true,
+          capRounded:     true,
+          opacity: 0.1
+        });
+      });
+
+      const timestamps = trips.flatMap(t => t.waypoints.map(p => p.timestamp));
+      const minT = Math.min(...timestamps);
+      const maxT = Math.max(...timestamps);
+      const speed = 180;
+      let currentTime = minT;
+      let playing = true;
+
+      const baseProps = {
+        id: 'trips-layer',
+        data: trips,
+        getPath: d => d.waypoints.map(p => [p.coordinates[1], p.coordinates[0]]),
+        getTimestamps: d => d.waypoints.map(p => p.timestamp),
+        getColor: d => d.color,
+        opacity: 1,
+        widthMinPixels: 4,
+        jointRounded: true,
+        capRounded: true,
+        trailLength: 70
+      };
+
+
+
+
+
+      // Crear capas una vez
+      const tripsLayer = new TripsLayer({ ...baseProps, currentTime });
+      const startLayer = new ScatterplotLayer({
+        id: 'start-points',
+        data: trips.map(t => ({ position: [t.waypoints[0].coordinates[1], t.waypoints[0].coordinates[0]], color: t.color })),
+        getPosition: d => d.position,
+        getFillColor: d => d.color,
+        radiusMinPixels: 10
+      });
+
+      const overlay = new MapboxOverlay({ 
+        interleaved: true, 
+        layers: [          
+          ...staticLineLayers,  
+          tripsLayer,
+          startLayer]
+        });
+      map.addControl(overlay);
+
+      document.getElementById('play').onclick = () => {
+        playing = !playing;
+        document.getElementById('play').textContent = playing ? '⏯ Pausar' : '▶️ Reanudar';
+      };
+      document.getElementById('both').onclick = () => rebuild(trips);
+      document.getElementById('out').onclick = () => rebuild(trips.filter(t => t.direction === 0));
+      document.getElementById('in').onclick = () => rebuild(trips.filter(t => t.direction === 1));
+
+      function rebuild(data) {
+        overlay.setProps({
+          layers: [
+            ...staticLineLayers,
+            new TripsLayer({ ...baseProps, data, currentTime }),
+            startLayer.clone({ data: data.map(t => ({ position: [t.waypoints[0].coordinates[1], t.waypoints[0].coordinates[0]], color: t.color })) })
+          ]
+        });
+      }
+
+      function animate() {
+        if (playing) {
+          currentTime += speed / 120;
+          if (currentTime > maxT + 600) currentTime = minT;
+          overlay.setProps({
+            layers: [
+              ...staticLineLayers,
+              new TripsLayer({ ...baseProps, data: trips, currentTime }),
+              startLayer
+            ]
+          });
+          document.getElementById('time').textContent = formatTime(currentTime);
+        }
+        requestAnimationFrame(animate);
+      }
+      animate();
+    }
+  </script>
+</body>
+
+</html>

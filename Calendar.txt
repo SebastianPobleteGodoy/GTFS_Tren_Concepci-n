@@ -1,0 +1,2 @@
+service_id,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday,start_date,end_date
+L,1,1,1,1,1,0,0,2025-01-01,2025-12-31
